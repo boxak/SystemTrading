@@ -1,5 +1,3 @@
-import time
-
 from PyQt5.QAxContainer import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
@@ -29,7 +27,7 @@ class Kiwoom(QAxWidget):
         self.OnEventConnect.connect(self._login_slot)
         self.OnReceiveTrData.connect(self._on_receive_tr_data)
 
-        self.OnReceiveTrData.connect(self._on_receive_msg)
+        self.OnReceiveMsg.connect(self._on_receive_msg)
 
         self.OnReceiveChejanData.connect(self._on_chejan_slot)
 
@@ -57,19 +55,18 @@ class Kiwoom(QAxWidget):
                     if code not in self.order.keys():
                         self.order[code] = {}
 
-                        self.order[code].update({item_name:data})
+                    self.order[code].update({item_name:data})
 
-                        print("* 주문 출력 (self.order)")
-                        print(self.order)
+                    print("* 주문 출력 (self.order)")
+                    print(self.order)
 
                 elif int(s_gubun) == 1:
                     if code not in self.balance.keys():
                         self.balance[code] = {}
 
-                        self.balance[code].update({item_name : data})
-
-                        print("* 잔고 출력 (self.balance)")
-                        print(self.balance)
+                    self.balance[code].update({item_name : data})
+                    print("* 잔고 출력 (self.balance)")
+                    print(self.balance)
 
 
 
@@ -119,6 +116,69 @@ class Kiwoom(QAxWidget):
                                        trcode, rqname, 0, "주문가능금액")
             self.tr_data = int(deposit)
             print(self.tr_data)
+
+        elif rqname == "opt10075_req":
+            for i in range(tr_data_cnt):
+                code = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                        trcode, rqname, i, "종목코드")
+                code_name = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                        trcode, rqname, i, "종목명")
+                order_number = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                             trcode, rqname, i, "주문번호")
+                order_status = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                             trcode, rqname, i, "주문상태")
+                order_quantity = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                             trcode, rqname, i, "주문수량")
+                order_price = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                             trcode, rqname, i, "주문가")
+                current_price = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                             trcode, rqname, i, "현재가")
+                order_type = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                             trcode, rqname, i, "주문구분")
+                left_quantity = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                             trcode, rqname, i, "미체결수량")
+                executed_quantity = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                        trcode, rqname, i, "체결량")
+                ordered_at = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                        trcode, rqname, i, "시간")
+                fee = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                        trcode, rqname, i, "당일매매수수료")
+                tax = self.dynamicCall("GetCommData(QString, QString,int, QString",
+                                        trcode, rqname, i, "당일매매세금")
+
+                code = code.strip()
+                code_name = code_name.strip()
+                order_number = str(int(order_number.strip()))
+                order_status = order_status.strip()
+                order_quantity = int(order_quantity.strip())
+                order_price = int(order_price.strip())
+
+                current_price = int(current_price.strip().lstrip('+').lstrip('-'))
+                order_type = order_type.strip().lstrip('+').lstrip('-')
+                left_quantity = int(left_quantity.strip())
+                executed_quantity = int(executed_quantity.strip())
+
+                ordered_at = ordered_at.strip()
+                fee = int(fee)
+                tax = int(tax)
+
+                self.order[code] = {
+                    '종목코드' : code,
+                    '종목명' : code_name,
+                    '주문번호' : order_number,
+                    '주문상태' : order_status,
+                    '주문수량' : order_quantity,
+                    '주문가격' : order_price,
+                    '현재가' : current_price,
+                    '주문구분' : order_type,
+                    '미체결수량' : left_quantity,
+                    '체결량' : executed_quantity,
+                    '주문시간' : ordered_at,
+                    '당일매매수수료' : fee,
+                    '당일매매세금' : tax
+                }
+
+            self.tr_data = self.order
 
         self.tr_event_loop.exit()
         time.sleep(0.5)
@@ -209,3 +269,20 @@ class Kiwoom(QAxWidget):
                                          origin_order_number])
 
         return order_result
+
+    def get_order(self):
+        self.dynamicCall("SetInputValue(QString, QString)",
+                         "계좌번호", self.account_number)
+        self.dynamicCall("SetInputValue(QString, QString)",
+                         "전체종목구분","0")
+        self.dynamicCall("SetInputValue(QString, QString)",
+                         "체결구분", "0")
+        self.dynamicCall("SetInputValue(QString, QString)",
+                         "매매구분", "0")
+
+        self.dynamicCall("CommRqData(QString, QString, int, QString)",
+                         "opt10075_req", "opt10075", 0, "0002")
+
+        self.tr_event_loop.exec_()
+
+        return self.tr_data
