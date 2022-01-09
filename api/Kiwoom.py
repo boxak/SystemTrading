@@ -17,8 +17,8 @@ class Kiwoom(QAxWidget):
         self.tr_event_loop = QEventLoop()
 
         self.order = {}
-
         self.balance = {}
+        self.universe_realtime_transaction_info = {}
 
     def _make_kiwoom_instance(self):
         self.setControl("KHOPENAPI.KHOpenAPICtrl.1")
@@ -30,6 +30,7 @@ class Kiwoom(QAxWidget):
         self.OnReceiveMsg.connect(self._on_receive_msg)
 
         self.OnReceiveChejanData.connect(self._on_chejan_slot)
+        ##self.OnReceiveRealdata.connect(self._on_receive_real_data)
 
     def _on_receive_msg(self, screen_no, rqname, trcode, msg):
         print("[Kiwoom] _on_receive_msg is called {} / {} / {} / {}"
@@ -180,6 +181,42 @@ class Kiwoom(QAxWidget):
 
             self.tr_data = self.order
 
+        elif rqname == "opw00018_req":
+            for i in range(tr_data_cnt):
+                code = self.dynamicCall("GetCommData(QString, QString, int, QString", trcode, rqname, i, "종목번호")
+                code_name = self.dynamicCall("GetCommData(QString, QString, int, QString", trcode, rqname, i, "종목명")
+                quantity = self.dynamicCall("GetCommData(QString, QString, int, QString", trcode, rqname, i, "보유수량")
+                purchase_price = self.dynamicCall("GetCommData(QString, QString, int, QString", trcode, rqname, i,
+                                                  "매입가")
+                return_rate = self.dynamicCall("GetCommData(QString, QString, int, QString", trcode, rqname, i,
+                                               "수익률(%)")
+                current_price = self.dynamicCall("GetCommData(QString, QString, int, QString", trcode, rqname, i, "현재가")
+                total_purchase_price = self.dynamicCall("GetCommData(QString, QString, int, QString", trcode, rqname, i,
+                                                        "매입금액")
+                available_quantity = self.dynamicCall("GetCommData(QString, QString, int, QString", trcode, rqname, i,
+                                                      "매매가능수량")
+
+                code = code.strip()[1:]
+                code_name = code_name.strip()
+                quantity = int(quantity)
+                purchase_price = int(purchase_price)
+                return_rate = float(return_rate)
+                current_price = int(current_price)
+                total_purchase_price = int(total_purchase_price)
+                available_quantity = int(available_quantity)
+
+                self.balance[code] = {
+                    '종목명': code_name,
+                    '보유수량': quantity,
+                    '매입가': purchase_price,
+                    '수익률': return_rate,
+                    '현재가': current_price,
+                    '매입금액': total_purchase_price,
+                    '매매가능수량': available_quantity
+                }
+
+            self.tr_data = self.balance
+
         self.tr_event_loop.exit()
         time.sleep(0.5)
 
@@ -286,3 +323,66 @@ class Kiwoom(QAxWidget):
         self.tr_event_loop.exec_()
 
         return self.tr_data
+
+    def get_balance(self):
+        self.dynamicCall("SetInputValue(QString, QString)",
+                         "계좌번호", self.account_number)
+        self.dynamicCall("SetInputValue(QString, QString)",
+                         "비밀번호입력매체구분", "00")
+        self.dynamicCall("SetInputValue(QString,QString)",
+                         "조회구분", "1")
+        self.dynamicCall("CommRqData(QString,QString,int,QString)",
+                         "opw00018_req","opw00018",0,"0002")
+        self.tr_event_loop.exec_()
+
+        return self.tr_data
+
+    def set_real_reg(self, str_screen_no, str_code_list, str_fid_list, str_opt_type):
+        self.dynamicCall("SetRealReg(QString, QString, QString, QString)", str_screen_no, str_code_list, str_fid_list, str_opt_type)
+        time.sleep(0.5)
+
+    def _on_receive_real_data(self, s_code, real_type, real_data):
+        if real_type == "장시작시간":
+            pass
+
+        elif real_type == "주식체결":
+            signed_at = self.dynamicCall("GetCommRealData(QString, int)", s_code, get_fid("체결시간"))
+
+            close = self.dynamicCall("GetCommRealData(QString, int)", s_code, get_fid("현재가"))
+            close = abs(int(close))
+
+            high = self.dynamicCall("GetCommRealData(QString, int)", s_code, get_fid('고가'))
+            high = abs(int(high))
+
+            open = self.dynamicCall("GetCommRealData(QString, int)", s_code, get_fid('시가'))
+            open = abs(int(open))
+
+            low = self.dynamicCall("GetCommRealData(QString, int)", s_code, get_fid('저가'))
+            low = abs(int(low))
+
+            top_priority_ask = self.dynamicCall("GetCommRealData(QString, int)", s_code, get_fid('(최우선)매도호가'))
+            top_priority_ask = abs(int(top_priority_ask))
+
+            top_priority_bid = self.dynamicCall("GetCommRealData(QString, int)", s_code, get_fid('(최우선)매수호가'))
+            top_priority_bid = abs(int(top_priority_bid))
+
+            accum_volume = self.dynamicCall("GetCommRealData(QString, int)", s_code, get_fid('누적거래량'))
+            accum_volume = abs(int(accum_volume))
+
+            # print(s_code, signed_at, close, high, open, low, top_priority_ask, top_priority_bid, accum_volume)
+
+            # universe_realtime_transaction_info 딕셔너리에 종목코드가 키값으로 존재하지 않는다면 생성(해당 종목 실시간 데이터 최초 수신시)
+            if s_code not in self.universe_realtime_transaction_info:
+                self.universe_realtime_transaction_info.update({s_code: {}})
+
+            # 최초 수신 이후 계속 수신되는 데이터는 update를 이용해서 값 갱신
+            self.universe_realtime_transaction_info[s_code].update({
+                "체결시간": signed_at,
+                "시가": open,
+                "고가": high,
+                "저가": low,
+                "현재가": close,
+                "(최우선)매도호가": top_priority_ask,
+                "(최우선)매수호가": top_priority_bid,
+                "누적거래량": accum_volume
+            })
